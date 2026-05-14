@@ -23,7 +23,6 @@ const defaultConfig = `# rcmd configuration file
 # restricted_subcommands = ["push", "commit"]
 `
 
-
 type Config struct {
 	BinDir   string       `toml:"bin_dir"`
 	Commands []CmdRestric `toml:"commands"`
@@ -35,44 +34,29 @@ type CmdRestric struct {
 	RestrictedSubcommands []string `toml:"restricted_subcommands"`
 }
 
-func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: rcmd <command> [subcommand] [args...]\n")
-		os.Exit(1)
-	}
+func loadConfig(configPath string) (Config, error) {
+	var config Config
+	_, err := toml.DecodeFile(configPath, &config)
+	return config, err
+}
 
-	targetCmd := os.Args[1]
-	cmdArgs := os.Args[2:]
-
-	homeDir, err := os.UserHomeDir()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "rcmd: %v\n", err)
-		os.Exit(1)
-	}
-	configDir := filepath.Join(homeDir, ".config", "rcmd")
-	configPath := filepath.Join(configDir, "config.toml")
-
+func ensureConfig(configDir, configPath string) error {
 	if _, err := os.Stat(configPath); os.IsNotExist(err) {
 		if err := os.MkdirAll(configDir, 0755); err != nil {
-			fmt.Fprintf(os.Stderr, "rcmd: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 		if err := os.WriteFile(configPath, []byte(defaultConfig), 0644); err != nil {
-			fmt.Fprintf(os.Stderr, "rcmd: %v\n", err)
-			os.Exit(1)
+			return err
 		}
 	}
+	return nil
+}
 
-	var config Config
-	if _, err := toml.DecodeFile(configPath, &config); err != nil {
-		fmt.Fprintf(os.Stderr, "rcmd: failed to load config: %v\n", err)
-		os.Exit(1)
-	}
-
+func runCommand(config Config, homeDir, targetCmd string, cmdArgs []string) {
 	var targetConfig *CmdRestric
-	for _, cmd := range config.Commands {
+	for i, cmd := range config.Commands {
 		if cmd.Name == targetCmd {
-			targetConfig = &cmd
+			targetConfig = &config.Commands[i]
 			break
 		}
 	}
@@ -96,7 +80,7 @@ func main() {
 			if err != nil {
 				realCurrent = filepath.Clean(currentDir)
 			}
-			
+
 			isAllowedLocation := false
 
 			for _, allowedDir := range targetConfig.AllowedDirs {
@@ -139,6 +123,100 @@ func main() {
 			os.Exit(exitError.ExitCode())
 		}
 		fmt.Fprintf(os.Stderr, "%s: %v\n", targetCmd, err)
+		os.Exit(1)
+	}
+}
+
+// detectShell returns the shell name (bash, zsh, fish) derived from $SHELL.
+func detectShell() string {
+	shell := os.Getenv("SHELL")
+	base := filepath.Base(shell)
+	switch base {
+	case "bash", "zsh", "fish":
+		return base
+	default:
+		return "bash"
+	}
+}
+
+// activateCommand prints alias definitions for all commands listed in config.toml.
+// The output is intended to be eval'd by the user's shell:
+//
+//	eval "$(rcmd activate)"
+func activateCommand(config Config, shell string) {
+	rcmdPath, err := os.Executable()
+	if err != nil {
+		rcmdPath = "rcmd"
+	}
+
+	for _, cmd := range config.Commands {
+		name := cmd.Name
+		switch shell {
+		case "fish":
+			fmt.Printf("function %s; %s run %s $argv; end\n", name, rcmdPath, name)
+		default: // bash, zsh and POSIX-compatible shells
+			fmt.Printf("alias %s='%s run %s'\n", name, rcmdPath, name)
+		}
+	}
+}
+
+func main() {
+	if len(os.Args) < 2 {
+		fmt.Fprintf(os.Stderr, "usage: rcmd <subcommand> [args...]\n")
+		fmt.Fprintf(os.Stderr, "\nSubcommands:\n")
+		fmt.Fprintf(os.Stderr, "  run <command> [args...]   Run a command with rcmd restrictions\n")
+		fmt.Fprintf(os.Stderr, "  activate [--shell <sh>]   Print shell aliases for commands in config.toml\n")
+		os.Exit(1)
+	}
+
+	homeDir, err := os.UserHomeDir()
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "rcmd: %v\n", err)
+		os.Exit(1)
+	}
+	configDir := filepath.Join(homeDir, ".config", "rcmd")
+	configPath := filepath.Join(configDir, "config.toml")
+
+	if err := ensureConfig(configDir, configPath); err != nil {
+		fmt.Fprintf(os.Stderr, "rcmd: %v\n", err)
+		os.Exit(1)
+	}
+
+	config, err := loadConfig(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "rcmd: failed to load config: %v\n", err)
+		os.Exit(1)
+	}
+
+	subcommand := os.Args[1]
+
+	switch subcommand {
+	case "activate":
+		shell := detectShell()
+		args := os.Args[2:]
+		for i := 0; i < len(args); i++ {
+			if args[i] == "--shell" && i+1 < len(args) {
+				shell = args[i+1]
+				i++
+			}
+		}
+		activateCommand(config, shell)
+
+	case "run":
+		if len(os.Args) < 3 {
+			fmt.Fprintf(os.Stderr, "usage: rcmd run <command> [args...]\n")
+			os.Exit(1)
+		}
+		targetCmd := os.Args[2]
+		cmdArgs := os.Args[3:]
+		runCommand(config, homeDir, targetCmd, cmdArgs)
+
+	default:
+		fmt.Fprintf(os.Stderr, "rcmd: unknown subcommand %q\n", subcommand)
+		fmt.Fprintf(os.Stderr, "usage: rcmd <subcommand> [args...]\n")
+		fmt.Fprintf(os.Stderr, "\nSubcommands:\n")
+		fmt.Fprintf(os.Stderr, "  run <command> [args...]   Run a command with rcmd restrictions\n")
+		fmt.Fprintf(os.Stderr, "  activate [--shell <sh>]   Print shell aliases for commands in config.toml\n")
 		os.Exit(1)
 	}
 }
