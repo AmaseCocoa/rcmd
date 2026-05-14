@@ -11,12 +11,13 @@ A minimal, low-profile command wrapper to restrict execution of specific command
 
 - Restricts specific subcommands to specified directory trees (including symlink resolution).
 - Auto-generates a documented configuration file on the first execution.
+- **100% Vibe-Driven Development**: Quick and dirty code generated via vibe-coding because the author had absolutely zero desire to overthink this or waste precious time.
 
 ## Installation
 
 ### Prerequisites
 
-- Go 1.16 or later
+- Go 1.26.3 or later
 
 ### Build from Source
 
@@ -76,3 +77,6 @@ Everything up-to-date
 ```
 
 Commands not listed in `config.toml` are transparently passed through without any restriction.
+
+## LICENSE
+MIT License
