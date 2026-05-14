@@ -19,7 +19,7 @@ const defaultConfig = `# rcmd configuration file
 
 # [[commands]]
 # name = "git"
-# allowed_dir = "~/projects/secure-repo"
+# allowed_dirs = ["~/projects/secure-repo", "/var/www/html/prod-repo"]
 # restricted_subcommands = ["push", "commit"]
 `
 
@@ -31,7 +31,7 @@ type Config struct {
 
 type CmdRestric struct {
 	Name                  string   `toml:"name"`
-	AllowedDir            string   `toml:"allowed_dir"`
+	AllowedDirs           []string `toml:"allowed_dirs"`
 	RestrictedSubcommands []string `toml:"restricted_subcommands"`
 }
 
@@ -97,18 +97,27 @@ func main() {
 				realCurrent = filepath.Clean(currentDir)
 			}
 			
-			allowedPath := targetConfig.AllowedDir
-			if strings.HasPrefix(allowedPath, "~") {
-				allowedPath = filepath.Join(homeDir, allowedPath[1:])
-			}
-			
-			realAllowed, err := filepath.EvalSymlinks(allowedPath)
-			if err != nil {
-				realAllowed = filepath.Clean(allowedPath)
+			isAllowedLocation := false
+
+			for _, allowedDir := range targetConfig.AllowedDirs {
+				allowedPath := allowedDir
+				if strings.HasPrefix(allowedPath, "~") {
+					allowedPath = filepath.Join(homeDir, allowedPath[1:])
+				}
+
+				realAllowed, err := filepath.EvalSymlinks(allowedPath)
+				if err != nil {
+					realAllowed = filepath.Clean(allowedPath)
+				}
+
+				rel, err := filepath.Rel(realAllowed, realCurrent)
+				if err == nil && !strings.HasPrefix(rel, "..") {
+					isAllowedLocation = true
+					break
+				}
 			}
 
-			rel, err := filepath.Rel(realAllowed, realCurrent)
-			if err != nil || strings.HasPrefix(rel, "..") {
+			if !isAllowedLocation {
 				fmt.Fprintf(os.Stderr, "rcmd: %s %s: permission denied in this directory\n", targetCmd, strings.Join(cmdArgs, " "))
 				os.Exit(1)
 			}
