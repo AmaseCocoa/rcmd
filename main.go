@@ -139,6 +139,12 @@ func detectShell() string {
 	}
 }
 
+// shellSingleQuote wraps s in single quotes safe for POSIX shells by escaping
+// any embedded single quotes as '\''.
+func shellSingleQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 // activateCommand prints alias definitions for all commands listed in config.toml.
 // The output is intended to be eval'd by the user's shell:
 //
@@ -153,9 +159,12 @@ func activateCommand(config Config, shell string) {
 		name := cmd.Name
 		switch shell {
 		case "fish":
-			fmt.Printf("function %s; %s run %s $argv; end\n", name, rcmdPath, name)
+			// fish uses a different quoting style; escape single quotes inside the name
+			safeName := strings.ReplaceAll(name, "'", `\'`)
+			safeRcmd := strings.ReplaceAll(rcmdPath, "'", `\'`)
+			fmt.Printf("function %s; %s run %s $argv; end\n", safeName, safeRcmd, safeName)
 		default: // bash, zsh and POSIX-compatible shells
-			fmt.Printf("alias %s='%s run %s'\n", name, rcmdPath, name)
+			fmt.Printf("alias %s=%s\n", shellSingleQuote(name), shellSingleQuote(rcmdPath+" run "+name))
 		}
 	}
 }
@@ -199,6 +208,13 @@ func main() {
 				shell = args[i+1]
 				i++
 			}
+		}
+		switch shell {
+		case "bash", "zsh", "fish":
+			// supported
+		default:
+			fmt.Fprintf(os.Stderr, "rcmd activate: unsupported shell %q (supported: bash, zsh, fish)\n", shell)
+			os.Exit(1)
 		}
 		activateCommand(config, shell)
 
