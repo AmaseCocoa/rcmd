@@ -63,14 +63,12 @@ func main() {
 		}
 	}
 
-	// 2. 設定のロード
 	var config Config
 	if _, err := toml.DecodeFile(configPath, &config); err != nil {
 		fmt.Fprintf(os.Stderr, "rcmd: failed to load config: %v\n", err)
 		os.Exit(1)
 	}
 
-	// 3. 制限判定のロジック
 	var targetConfig *CmdRestric
 	for _, cmd := range config.Commands {
 		if cmd.Name == targetCmd {
@@ -117,7 +115,6 @@ func main() {
 		}
 	}
 
-	// 4. コマンドの実行
 	execName := targetCmd
 	if config.BinDir != "" {
 		execName = filepath.Join(config.BinDir, targetCmd)
